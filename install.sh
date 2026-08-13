@@ -1,28 +1,38 @@
 #!/usr/bin/env bash
 set -e
 
-echo "Installing Plan..."
+echo " Installing Plan..."
 
 # 1. Check Prerequisites
 if ! command -v python3 &> /dev/null; then echo "❌ Python 3 missing."; exit 1; fi
 if ! command -v git &> /dev/null; then echo "❌ Git missing."; exit 1; fi
 
-# 2. Clone Repository
-INSTALL_DIR="$HOME/.mini-ci"
-if [ -d "$INSTALL_DIR" ]; then rm -rf "$INSTALL_DIR"; fi
-git clone https://github.com/mosakrm0/Plan-Tool.git "$INSTALL_DIR" --quiet
+# 2. Setup Directories
+INSTALL_DIR="$HOME/.plan"
+SRC_DIR="$INSTALL_DIR/src"
 
-# 3. Setup Isolated Virtual Environment (Fixes PEP 668)
+if [ -d "$INSTALL_DIR" ]; then 
+    echo "🧹 Cleaning up previous installation..."
+    rm -rf "$INSTALL_DIR"
+fi
+
+# 3. Clone Repository into a temporary source folder
+git clone https://github.com/mosakrm0/Plan-Tool.git "$SRC_DIR" --quiet
+
+# 4. Setup Isolated Virtual Environment 
 echo "📦 Setting up isolated Python environment..."
 sudo apt install python3.13-venv -y
 python3 -m venv "$INSTALL_DIR/venv"
 
-# 4. Install using the isolated pip
+# 5. Install using the isolated pip
 echo "🔧 Installing dependencies..."
-cd "$INSTALL_DIR"
-"$INSTALL_DIR/venv/bin/pip" install --quiet .
+"$INSTALL_DIR/venv/bin/pip" install --quiet "$SRC_DIR"
 
-# 5. Create Global Wrapper & Fix PATH
+# 6. Delete the raw source files to save space
+echo "🧹 Removing raw source files..."
+rm -rf "$SRC_DIR"
+
+# 7. Create Global Wrapper & Fix PATH
 BIN_DIR="$INSTALL_DIR/bin"
 mkdir -p "$BIN_DIR"
 

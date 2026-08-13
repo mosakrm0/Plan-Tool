@@ -1,24 +1,34 @@
-Write-Host "Installing Plan..." -ForegroundColor Cyan
+Write-Host " Installing Plan..." -ForegroundColor Cyan
 
 # 1. Check Prerequisites
 if (-Not (Get-Command "python" -ErrorAction SilentlyContinue)) { Write-Host "❌ Python is missing." -ForegroundColor Red; exit 1 }
 if (-Not (Get-Command "git" -ErrorAction SilentlyContinue)) { Write-Host "❌ Git is missing." -ForegroundColor Red; exit 1 }
 
-# 2. Clone Repository
-$InstallDir = "$env:USERPROFILE\.mini-ci"
-if (Test-Path $InstallDir) { Remove-Item -Recurse -Force $InstallDir }
-git clone https://github.com/mosakrm0/Plan-Tool.git $InstallDir --quiet
+# 2. Setup Directories
+$InstallDir = "$env:USERPROFILE\.plan"
+$SrcDir = Join-Path $InstallDir "src"
 
-# 3. Setup Isolated Virtual Environment
+if (Test-Path $InstallDir) { 
+    Write-Host "🧹 Cleaning up previous installation..." -ForegroundColor Gray
+    Remove-Item -Recurse -Force $InstallDir 
+}
+
+# 3. Clone Repository into a temporary source folder
+git clone https://github.com/mosakrm0/Plan-Tool.git $SrcDir --quiet
+
+# 4. Setup Isolated Virtual Environment
 Write-Host "📦 Setting up isolated Python environment..." -ForegroundColor Gray
 python -m venv "$InstallDir\venv"
 
-# 4. Install using the isolated pip
+# 5. Install using the isolated pip
 Write-Host "🔧 Installing dependencies..." -ForegroundColor Gray
-Set-Location $InstallDir
-& "$InstallDir\venv\Scripts\pip.exe" install --quiet .
+& "$InstallDir\venv\Scripts\pip.exe" install --quiet $SrcDir
 
-# 5. Create Global Wrappers & Fix PATH
+# 6. Delete the raw source files to save space
+Write-Host "🧹 Removing raw source files..." -ForegroundColor Gray
+Remove-Item -Recurse -Force $SrcDir
+
+# 7. Create Global Wrappers & Fix PATH
 $BinDir = Join-Path $InstallDir "bin"
 New-Item -ItemType Directory -Force -Path $BinDir | Out-Null
 

@@ -18,6 +18,25 @@ __version__ = "1.0.0"
 
 UPDATE_URL = "https://raw.githubusercontent.com/mosakrm0/Plan-Tool/main/version.txt"
 
+
+def find_pipeline_file(target_dir: str, specified_file: str = None) -> str:
+    """Finds the pipeline file, falling back between standard extensions if not specified."""
+    if specified_file:
+        path = os.path.join(target_dir, specified_file)
+        if not os.path.exists(path):
+            print(f"❌ Could not find specified pipeline: {specified_file} in {target_dir}")
+            sys.exit(1)
+        return path
+        
+    # Default behavior: check both standard extensions
+    for ext in [".ci.yml", ".ci.yaml", ".plan.yml", ".plan.yaml"]:
+        path = os.path.join(target_dir, ext)
+        if os.path.exists(path):
+            return path
+            
+    print(f"❌ Could not find a pipeline YAML file in {target_dir}")
+    sys.exit(1)
+
 def check_for_updates():
     """Silently checks a remote URL for a newer version."""
     try:
