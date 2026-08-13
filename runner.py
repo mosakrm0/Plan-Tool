@@ -84,6 +84,45 @@ def check_for_updates():
     except Exception:
         pass
 
+
+def perform_update():
+    """Run the platform-appropriate installer to update Plan.
+
+    - On Unix-like systems this runs the remote install.sh via curl | bash
+    - On Windows it runs the remote install.ps1 via Invoke-WebRequest | Invoke-Expression
+
+    This function shells out and requires network access and any privileges the installers need.
+    """
+    print("🔄 Checking and applying update...")
+    try:
+        if os.name == 'nt':
+            # PowerShell command to run remote install.ps1
+            cmd = [
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "Invoke-WebRequest -UseBasicParsing -Uri https://raw.githubusercontent.com/mosakrm0/plan-tool/main/install.ps1 | Invoke-Expression"
+            ]
+        else:
+            # curl | bash approach for Unix-like
+            cmd = ["/bin/bash", "-c", "curl -fsSL https://raw.githubusercontent.com/mosakrm0/plan-tool/main/install.sh | bash"]
+
+        proc = subprocess.run(cmd)
+        if proc.returncode == 0:
+            print(f"✅ Update applied. You may need to restart your shell to pick up changes.")
+            return True
+        else:
+            print(f"⚠️ Update failed (exit {proc.returncode}).")
+            return False
+    except FileNotFoundError:
+        print("⚠️ Installer tool not found on this system (bash/powershell). Update aborted.")
+        return False
+    except Exception as e:
+        print(f"⚠️ Update failed: {e}")
+        return False
+
 def fix_windows_path():
     """Automatically adds the Python Scripts folder to the Windows User PATH."""
     if os.name != 'nt':
@@ -345,7 +384,14 @@ def main():
     parser.add_argument('--vars-file', type=str, help="Path to a .env or YAML file with variables (KEY=VALUE or YAML mapping)")
     parser.add_argument('--secrets-file', type=str, help="Path to a .env or YAML file with secrets")
 
+    parser.add_argument('--update', action='store_true', help='Check for and install the latest release (platform installer)')
+
     args = parser.parse_args()
+
+    # If user explicitly asked to update, run installer and exit
+    if getattr(args, 'update', False):
+        success = perform_update()
+        sys.exit(0 if success else 1)
 
     # Helper to parse KEY=VALUE lists
     def parse_kv_list(kv_list):
