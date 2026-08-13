@@ -18,20 +18,29 @@ if (-Not (Get-Command "git" -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-# 4. Check for and install pipenv
-if (-Not (Get-Command "pipenv" -ErrorAction SilentlyContinue)) {
-    Write-Host "📥 Installing pipenv..." -ForegroundColor Gray
-    python -m pip install pipenv
+# 4. Check for and install pipx
+if (-Not (Get-Command "pipx" -ErrorAction SilentlyContinue)) {
+    Write-Host "📥 Installing pipx..." -ForegroundColor Gray
+    python -m pip install --user pipx
+    
+    # Add pipx to PATH if not already there
+    $env:Path += ";$env:APPDATA\Python\Scripts"
 }
 
-# 5. Define installation directory
+# 5. Check for and install pipenv via pipx
+if (-Not (Get-Command "pipenv" -ErrorAction SilentlyContinue)) {
+    Write-Host "📥 Installing pipenv via pipx..." -ForegroundColor Gray
+    pipx install pipenv
+}
+
+# 6. Define installation directory
 $InstallDir = "$env:USERPROFILE\.mini-ci"
 if (Test-Path $InstallDir) {
     Write-Host "🧹 Cleaning up previous installation..." -ForegroundColor Gray
     Remove-Item -Recurse -Force $InstallDir
 }
 
-# 6. Clone and Install
+# 7. Clone and Install
 Write-Host "📦 Downloading source code..." -ForegroundColor Gray
 git clone https://github.com/mosakrm0/Plan-Tool.git $InstallDir
 
