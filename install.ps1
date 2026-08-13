@@ -11,6 +11,7 @@ git clone https://github.com/mosakrm0/Plan-Tool.git $InstallDir --quiet
 
 # 3. Setup Isolated Virtual Environment
 Write-Host "📦 Setting up isolated Python environment..." -ForegroundColor Gray
+sudo apt install python3.13-venv
 python -m venv "$InstallDir\venv"
 
 # 4. Install using the isolated pip
