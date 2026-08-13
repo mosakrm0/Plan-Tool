@@ -188,5 +188,4 @@ rm -rf ~/.plan
 ```powershell
 Remove-Item -Recurse -Force $env:USERPROFILE\.plan
 ```
-
 ---
