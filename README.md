@@ -181,12 +181,12 @@ jobs:
 
 *Linux / macOS:*
 ```bash
-rm -rf ~/.mini-ci
+rm -rf ~/.plan
 ```
 
 *Windows (PowerShell):*
 ```powershell
-Remove-Item -Recurse -Force $env:USERPROFILE\.mini-ci
+Remove-Item -Recurse -Force $env:USERPROFILE\.plan
 ```
 
 ---
