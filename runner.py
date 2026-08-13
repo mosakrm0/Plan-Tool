@@ -13,46 +13,22 @@ from graph import get_execution_order
 from executor import execute_job
 from reporter import Reporter, Status, Colors
 
-# --- NEW: Version Tracking ---
 __version__ = "1.0.0"
-
 UPDATE_URL = "https://raw.githubusercontent.com/mosakrm0/Plan-Tool/main/version.txt"
-
-
-def find_pipeline_file(target_dir: str, specified_file: str = None) -> str:
-    """Finds the pipeline file, falling back between standard extensions if not specified."""
-    if specified_file:
-        path = os.path.join(target_dir, specified_file)
-        if not os.path.exists(path):
-            print(f"❌ Could not find specified pipeline: {specified_file} in {target_dir}")
-            sys.exit(1)
-        return path
-        
-    # Default behavior: check both standard extensions
-    for ext in [".ci.yml", ".ci.yaml", ".plan.yml", ".plan.yaml"]:
-        path = os.path.join(target_dir, ext)
-        if os.path.exists(path):
-            return path
-            
-    print(f"❌ Could not find a pipeline YAML file in {target_dir}")
-    sys.exit(1)
 
 def check_for_updates():
     """Silently checks a remote URL for a newer version."""
     try:
         req = urllib.request.Request(UPDATE_URL, headers={'User-Agent': 'Mozilla/5.0'})
-        # Use a short timeout so we don't slow down the CLI if the internet is down
         with urllib.request.urlopen(req, timeout=1.5) as response:
             latest_version = response.read().decode('utf-8').strip()
             
             if latest_version and latest_version != __version__:
                 print(f"{Colors.YELLOW}🌟 Update available! You are running v{__version__}, but v{latest_version} is out.{Colors.RESET}")
-                print(f"{Colors.GRAY}Run 'git pull' and 'pip install -e .' to update.{Colors.RESET}\n")
+                print(f"{Colors.GRAY}Run the install script again to update.{Colors.RESET}\n")
     except Exception:
-        # If offline or repo isn't public yet, just fail silently
         pass
 
-# --- NEW: Auto-Path Fixer for Windows ---
 def fix_windows_path():
     """Automatically adds the Python Scripts folder to the Windows User PATH."""
     if os.name != 'nt':
@@ -60,21 +36,15 @@ def fix_windows_path():
         sys.exit(1)
         
     import winreg
-    import sysconfig
-    
-    # Get the EXACT user-level scripts directory for this specific Python version
     user_scripts_dir = sysconfig.get_path("scripts", f"{os.name}_user")
     
     try:
-        # Open the Windows Registry for the current user's environment
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_ALL_ACCESS)
         current_path, _ = winreg.QueryValueEx(key, "Path")
         
-        # Check if the exact user scripts directory is in the PATH
         if user_scripts_dir in current_path:
             print(f"✅ Your PATH is already configured correctly!\n({user_scripts_dir} is present)")
         else:
-            # Append the scripts directory to the path
             new_path = current_path + ";" + user_scripts_dir
             winreg.SetValueEx(key, "Path", 0, winreg.REG_EXPAND_SZ, new_path)
             print(f"✅ Successfully added to PATH:\n{user_scripts_dir}")
@@ -87,10 +57,128 @@ def fix_windows_path():
         print(f"Please manually add {user_scripts_dir} to your System PATH.")
     sys.exit(0)
 
-# ... [Keep your existing run_job_task, run_pipeline, send_webhook, find_pipeline_file, and run_from_repo functions exactly the same] ...
+def send_webhook(url: str, payload: dict):
+    print(f"\n🌐 Sending webhook to {url}...")
+    data = json.dumps(payload).encode('utf-8')
+    req = urllib.request.Request(url, data=data, headers={'Content-Type': 'application/json'})
+    try:
+        with urllib.request.urlopen(req) as response:
+            print(f"✅ Webhook delivered (Status: {response.getcode()})")
+    except urllib.error.URLError as e:
+        print(f"⚠️ Failed to send webhook: {e}")
+
+def run_job_task(job_name: str, pipeline, reporter: Reporter, cwd: str = None) -> bool:
+    job = pipeline.jobs[job_name]
+    
+    should_skip = False
+    with reporter.lock:
+        for needed_job in job.needs:
+            if reporter.results[needed_job]["status"] in (Status.FAILED, Status.SKIPPED):
+                should_skip = True
+                break
+                
+    if should_skip:
+        reporter.log(job_name, "⚠️ Skipped due to failed dependency.", Colors.YELLOW)
+        reporter.set_status(job_name, Status.SKIPPED)
+        return False
+
+    success, _ = execute_job(job, reporter, cwd=cwd)
+    return success
+
+def run_pipeline(filepath: str, cwd: str = None, webhook_url: str = None):
+    try:
+        pipeline = load_pipeline(filepath)
+        get_execution_order(pipeline) 
+    except PipelineError as e:
+        print(f"❌ Pipeline error: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Unexpected error: {e}")
+        sys.exit(1)
+
+    reporter = Reporter()
+    for job_name in pipeline.jobs:
+        reporter.init_job(job_name)
+
+    in_degree = {job: 0 for job in pipeline.jobs}
+    unlocks = {job: [] for job in pipeline.jobs}
+    
+    for job_name, job in pipeline.jobs.items():
+        for needed_job in job.needs:
+            unlocks[needed_job].append(job_name)
+            in_degree[job_name] += 1
+
+    pipeline_success = True
+    print(f"⚡ Starting pipeline execution in [{pipeline.image}]...\n")
+
+    with concurrent.futures.ThreadPoolExecutor() as pool:
+        futures_to_job = {}
+        
+        for job_name in pipeline.jobs:
+            if in_degree[job_name] == 0:
+                futures_to_job[pool.submit(run_job_task, job_name, pipeline, reporter, cwd)] = job_name
+
+        while futures_to_job:
+            done, _ = concurrent.futures.wait(futures_to_job, return_when=concurrent.futures.FIRST_COMPLETED)
+            for future in done:
+                finished_job = futures_to_job.pop(future)
+                success = future.result()
+                if not success:
+                    pipeline_success = False
+                    
+                for dependent in unlocks[finished_job]:
+                    in_degree[dependent] -= 1
+                    if in_degree[dependent] == 0:
+                        futures_to_job[pool.submit(run_job_task, dependent, pipeline, reporter, cwd)] = dependent
+
+    reporter.print_summary()
+    reporter.save_json_report(os.path.join(cwd or ".", "report.json"))
+    
+    if webhook_url:
+        send_webhook(webhook_url, reporter.get_report_dict())
+        
+    if not pipeline_success:
+        sys.exit(1)
+
+def find_pipeline_file(target_dir: str, specified_file: str = None) -> str:
+    """Finds the pipeline file, falling back between standard extensions if not specified."""
+    if specified_file:
+        path = os.path.join(target_dir, specified_file)
+        if not os.path.exists(path):
+            print(f"❌ Could not find specified pipeline: {specified_file} in {target_dir}")
+            sys.exit(1)
+        return path
+        
+    # Default behavior: check both standard extensions
+    for ext in [".mini-ci.yml", ".mini-ci.yaml", ".plan.yml", ".plan.yaml", ".ci.yml"]:
+        path = os.path.join(target_dir, ext)
+        if os.path.exists(path):
+            return path
+            
+    print(f"❌ Could not find a pipeline YAML file in {target_dir}")
+    sys.exit(1)
+
+def run_from_repo(repo_url: str, pipeline_filename: str = None, webhook_url: str = None):
+    with tempfile.TemporaryDirectory() as temp_dir:
+        print(f"📦 Cloning {repo_url}...")
+        clone_proc = subprocess.run(
+            ["git", "clone", repo_url, "."], 
+            cwd=temp_dir, 
+            capture_output=True, 
+            text=True
+        )
+        
+        if clone_proc.returncode != 0:
+            print(f"❌ Failed to clone repository:\n{clone_proc.stderr}")
+            sys.exit(1)
+            
+        print("✅ Clone successful!")
+        
+        pipeline_path = find_pipeline_file(temp_dir, pipeline_filename)
+        print(f"🔍 Found pipeline at {pipeline_path}")
+        run_pipeline(pipeline_path, cwd=temp_dir, webhook_url=webhook_url)
 
 def main():
-    # Check for updates immediately when the CLI is invoked
     check_for_updates()
     
     parser = argparse.ArgumentParser(
@@ -98,7 +186,6 @@ def main():
         epilog="Example: plan --repo https://github.com/user/repo.git"
     )
     
-    # We make the main group NOT required so we can run --fix-path on its own
     group = parser.add_mutually_exclusive_group(required=False)
     group.add_argument('--repo', type=str, help="URL of the Git repository to clone and run.")
     group.add_argument('--local', type=str, help="Path to a local directory to run in (does not clone).")
@@ -109,7 +196,6 @@ def main():
 
     args = parser.parse_args()
 
-    # Route the request
     if args.fix_path:
         fix_windows_path()
     elif args.repo:
@@ -120,7 +206,6 @@ def main():
         print(f"🔍 Found pipeline at {pipeline_path}")
         run_pipeline(pipeline_path, cwd=local_dir, webhook_url=args.webhook)
     else:
-        # If they didn't pass --local, --repo, or --fix-path, show the help menu
         parser.print_help()
         sys.exit(1)
 
