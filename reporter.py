@@ -1,4 +1,4 @@
-import threading
+﻿import threading
 import json
 from enum import Enum
 
@@ -60,19 +60,36 @@ class Reporter:
         
         print("="*45 + "\n")
 
-    # --- NEW: JSON REPORTING METHODS ---
-    def get_report_dict(self) -> dict:
-        """Converts the internal results into a standard dictionary."""
+    # --- JSON REPORTING METHODS WITH SECRET MASKING ---
+    def _mask_secrets_in_obj(self, obj, secret_values):
+        """Recursively replace any occurrences of secret values in strings with '***'."""
+        if not secret_values:
+            return obj
+        if isinstance(obj, dict):
+            return {k: self._mask_secrets_in_obj(v, secret_values) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [self._mask_secrets_in_obj(v, secret_values) for v in obj]
+        if isinstance(obj, str):
+            masked = obj
+            for s in secret_values:
+                if s and s in masked:
+                    masked = masked.replace(s, '***')
+            return masked
+        return obj
+
+    def get_report_dict(self, secret_values: list = None) -> dict:
+        """Converts the internal results into a standard dictionary and masks secrets if provided."""
         report = {}
         for job_name, data in self.results.items():
             report[job_name] = {
                 "status": data["status"].value,
                 "duration": round(data["duration"], 2)
             }
-        return {"jobs": report}
+        out = {"jobs": report}
+        return self._mask_secrets_in_obj(out, secret_values or [])
         
-    def save_json_report(self, filepath: str = "report.json"):
-        """Saves the pipeline results to a file."""
+    def save_json_report(self, filepath: str = "report.json", secret_values: list = None):
+        """Saves the pipeline results to a file, masking any provided secrets."""
         with open(filepath, 'w') as f:
-            json.dump(self.get_report_dict(), f, indent=2)
+            json.dump(self.get_report_dict(secret_values=secret_values), f, indent=2)
         print(f"📄 Saved JSON report to {filepath}")
