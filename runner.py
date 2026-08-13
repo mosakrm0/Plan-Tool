@@ -71,16 +71,52 @@ def merge_vars_into_jobs(pipeline, extra_vars: Dict[str,str], secrets: Dict[str,
 __version__ = "0.0.1"
 UPDATE_URL = "https://raw.githubusercontent.com/mosakrm0/Plan-Tool/main/version.txt"
 
+def _parse_version_tuple(v: str):
+    """Parse a version string like '1.2.3' into a tuple of ints (1,2,3).
+
+    Returns None when no numeric parts are present.
+    """
+    import re
+    if not v or not isinstance(v, str):
+        return None
+    parts = re.findall(r"\d+", v)
+    if not parts:
+        return None
+    return tuple(int(p) for p in parts)
+
+
 def check_for_updates():
-    """Silently checks a remote URL for a newer version."""
+    """Silently checks a remote URL for a newer version.
+
+    Only notifies when the remote version parses as a higher semantic version
+    than the current __version__. This avoids false-positives when the
+    remote file is malformed or contains a lower/older value.
+    """
     try:
         req = urllib.request.Request(UPDATE_URL, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req, timeout=1.5) as response:
             latest_version = response.read().decode('utf-8').strip()
-            
-            if latest_version and latest_version != __version__:
-                print(f"{Colors.YELLOW}🌟 Update available! You are running v{__version__}, but v{latest_version} is out.{Colors.RESET}")
-                print(f"{Colors.GRAY}Run the install script again to update.{Colors.RESET}\n")
+
+            if not latest_version:
+                return
+
+            latest_tuple = _parse_version_tuple(latest_version)
+            current_tuple = _parse_version_tuple(__version__)
+
+            # If both parsed as numeric tuples, compare numerically
+            if latest_tuple and current_tuple:
+                if latest_tuple > current_tuple:
+                    print(f"{Colors.YELLOW}🌟 Update available! You are running v{__version__}, but v{latest_version} is out.{Colors.RESET}")
+                    print(f"{Colors.GRAY}Run the install script again to update.{Colors.RESET}\n")
+            else:
+                # Fallback: only notify when string-wise latest looks greater and differs
+                try:
+                    if latest_version != __version__ and latest_version > __version__:
+                        print(f"{Colors.YELLOW}🌟 Update available! You are running v{__version__}, but v{latest_version} is out.{Colors.RESET}")
+                        print(f"{Colors.GRAY}Run the install script again to update.{Colors.RESET}\n")
+                except Exception:
+                    # Give up silently rather than spam the user with bad data
+                    return
     except Exception:
         pass
 
