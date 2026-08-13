@@ -5,7 +5,7 @@
 
 A lightweight, parallel CI/CD runner.
 
-**Plan** is a platform-agnostic CI runner. It's a dependency-free, local CI engine that parses YAML pipelines, resolves job dependencies into a Directed Acyclic Graph (DAG), and executes jobs concurrently inside isolated Docker containers.
+**Plan** is platform agnostic CI runner. It's a dependency-free, local CI engine that parses YAML pipelines, resolves job dependencies into a Directed Acyclic Graph (DAG), and executes jobs concurrently inside isolated Docker containers.
 
 ---
 
@@ -96,7 +96,6 @@ plan --local ./my-project
 ```bash
 plan --repo https://github.com/username/project.git
 ```
-
 ## CLI Arguments
 
 | Argument | Description |
@@ -178,13 +177,7 @@ jobs:
 
 ## 🗑️ Uninstallation
 
-**1. Uninstall the Python package:**
-
-```bash
-pip uninstall plan
-```
-
-**2. Remove the cloned source directory:**
+**Remove the cloned source directory:**
 
 *Linux / macOS:*
 ```bash
@@ -197,13 +190,3 @@ Remove-Item -Recurse -Force $env:USERPROFILE\.mini-ci
 ```
 
 ---
-
-## 🤝 Contributing
-
-Contributions are welcome! Please open an issue to discuss significant changes before submitting a pull request.
-
-```bash
-git clone https://github.com/mosakrm0/plan-tool
-cd plan-tool
-pip install -e .
-```
