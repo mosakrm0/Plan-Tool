@@ -68,7 +68,7 @@ def merge_vars_into_jobs(pipeline, extra_vars: Dict[str,str], secrets: Dict[str,
         merged.update({k: str(v) for k, v in secrets.items()})
         job.env = merged
 
-__version__ = "1.0.0"
+__version__ = "0.0.1"
 UPDATE_URL = "https://raw.githubusercontent.com/mosakrm0/Plan-Tool/main/version.txt"
 
 def check_for_updates():
