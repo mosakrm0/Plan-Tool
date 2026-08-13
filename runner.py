@@ -156,22 +156,23 @@ def find_pipeline_file(target_dir: str, specified_file: str = None) -> str:
             sys.exit(1)
         return path
 
-    # 1) Check common top-level filenames
+    # 1) Check common top-level filenames (collect candidates rather than returning immediately)
     common_names = [
         ".mini-ci.yml", ".mini-ci.yaml", ".plan.yml", ".plan.yaml",
         ".ci.yml", ".ci.yaml", "gitlab-ci.yml", "gitlab-ci.yaml", ".gitlab-ci.yml", ".gitlab-ci.yaml"
     ]
+    candidates = []
     for name in common_names:
         path = os.path.join(target_dir, name)
         if os.path.exists(path):
-            return path
+            candidates.append(path)
 
     # 2) GitHub Actions workflows
     gh_workflows_dir = os.path.join(target_dir, '.github', 'workflows')
     if os.path.isdir(gh_workflows_dir):
         for fname in sorted(os.listdir(gh_workflows_dir)):
             if fname.endswith(('.yml', '.yaml')):
-                return os.path.join(gh_workflows_dir, fname)
+                candidates.append(os.path.join(gh_workflows_dir, fname))
 
     # 3) Walk the tree for obvious CI files (gitlab, circleci, any .yml that looks like a pipeline)
     for root, dirs, files in os.walk(target_dir):
@@ -182,7 +183,8 @@ def find_pipeline_file(target_dir: str, specified_file: str = None) -> str:
         for fname in files:
             lf = fname.lower()
             if lf in ("gitlab-ci.yml", "gitlab-ci.yaml", "circleci/config.yml"):
-                return os.path.join(root, fname)
+                candidates.append(os.path.join(root, fname))
+                continue
 
             if lf.endswith(('.yml', '.yaml')):
                 # Heuristic: peek into the file looking for 'jobs:' or 'script:' to identify CI files
@@ -190,12 +192,44 @@ def find_pipeline_file(target_dir: str, specified_file: str = None) -> str:
                     with open(os.path.join(root, fname), 'r', encoding='utf-8') as f:
                         head = f.read(16 * 1024)
                         if 'jobs:' in head or '\nscript:' in head or '\nstages:' in head:
-                            return os.path.join(root, fname)
+                            candidates.append(os.path.join(root, fname))
                 except Exception:
                     continue
 
-    print(f"❌ Could not find a pipeline YAML file in {target_dir}")
-    sys.exit(1)
+    # Remove duplicates while preserving order
+    seen = set()
+    uniq = []
+    for c in candidates:
+        if c not in seen:
+            seen.add(c)
+            uniq.append(c)
+
+    if not uniq:
+        print(f"❌ Could not find a pipeline YAML file in {target_dir}")
+        sys.exit(1)
+
+    if len(uniq) == 1:
+        return uniq[0]
+
+    # Prefer top-level well-known names if present
+    for name in common_names:
+        candidate_path = os.path.join(target_dir, name)
+        if candidate_path in uniq:
+            print(f"⚠️ Multiple pipeline-like files found. Choosing {candidate_path} (pass --pipeline to select explicitly).")
+            return candidate_path
+
+    # Prefer a file inside .github/workflows next
+    for c in uniq:
+        if os.path.normpath('.github' + os.sep + 'workflows') in os.path.normpath(c):
+            print(f"⚠️ Multiple pipeline-like files found. Choosing {c} from .github/workflows (pass --pipeline to select explicitly).")
+            return c
+
+    # Fallback: print list and return the first
+    print("⚠️ Multiple pipeline-like YAML files detected; listing candidates (choose with --pipeline):")
+    for c in uniq:
+        print(' -', c)
+    print(f"⚠️ Selecting first candidate: {uniq[0]}")
+    return uniq[0]
 
 def run_from_repo(repo_url: str, pipeline_filename: str = None, webhook_url: str = None):
     with tempfile.TemporaryDirectory() as temp_dir:

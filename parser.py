@@ -1,4 +1,5 @@
 import yaml
+import warnings
 from dataclasses import dataclass, field
 from typing import List, Dict
 
@@ -77,6 +78,11 @@ def load_pipeline(filepath: str) -> Pipeline:
                         # Convert 'uses' to an informational run (best-effort)
                         uses = step_data['uses']
                         step_name = step_data.get('name') or f"uses-{idx}"
+                        warnings.warn(
+                            f"Found 'uses' in job '{job_name}': {uses}. Converted to an informational echo step. "
+                            "Actions referenced by 'uses' will NOT be executed.",
+                            UserWarning
+                        )
                         parsed_steps.append(_make_step_from_run(step_name, f"echo 'uses: {uses}'"))
                     else:
                         # Skip unknown step types but continue parsing

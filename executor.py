@@ -2,10 +2,11 @@ import subprocess
 import time
 import os
 import shutil
+from typing import Tuple
 from parser import Job
 from reporter import Reporter, Status, Colors
 
-def execute_job(job: Job, reporter: Reporter, cwd: str = None) -> tuple[bool, float]:
+def execute_job(job: Job, reporter: Reporter, cwd: str = None) -> Tuple[bool, float]:
     reporter.set_status(job.name, Status.RUNNING)
     reporter.log(job.name, f"--- Starting Job in {job.image} ---", Colors.BLUE)
     
