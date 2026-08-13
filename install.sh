@@ -14,7 +14,7 @@ git clone https://github.com/mosakrm0/Plan-Tool.git "$INSTALL_DIR" --quiet
 
 # 3. Setup Isolated Virtual Environment (Fixes PEP 668)
 echo "📦 Setting up isolated Python environment..."
-sudo apt install python3.13-venv
+sudo apt install python3.13-venv -y
 python3 -m venv "$INSTALL_DIR/venv"
 
 # 4. Install using the isolated pip
