@@ -18,20 +18,26 @@ if (-Not (Get-Command "git" -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-# 4. Define installation directory
+# 4. Check for and install pipenv
+if (-Not (Get-Command "pipenv" -ErrorAction SilentlyContinue)) {
+    Write-Host "📥 Installing pipenv..." -ForegroundColor Gray
+    python -m pip install pipenv
+}
+
+# 5. Define installation directory
 $InstallDir = "$env:USERPROFILE\.mini-ci"
 if (Test-Path $InstallDir) {
     Write-Host "🧹 Cleaning up previous installation..." -ForegroundColor Gray
     Remove-Item -Recurse -Force $InstallDir
 }
 
-# 5. Clone and Install
+# 6. Clone and Install
 Write-Host "📦 Downloading source code..." -ForegroundColor Gray
 git clone https://github.com/mosakrm0/Plan-Tool.git $InstallDir
 
-Write-Host "🔧 Installing via pip..." -ForegroundColor Gray
+Write-Host "🔧 Installing dependencies with pipenv..." -ForegroundColor Gray
 Set-Location $InstallDir
-python -m pip install . 
+pipenv install 
 
 Write-Host "`n✅ Installation complete!" -ForegroundColor Green
 Write-Host "You can now run your CI engine from anywhere by typing: plan --help" -ForegroundColor Green

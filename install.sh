@@ -21,21 +21,26 @@ if ! command -v git &> /dev/null; then
     exit 1
 fi
 
-# 4. Define installation directory
+# 4. Check for and install pipenv
+if ! command -v pipenv &> /dev/null; then
+    echo "📥 Installing pipenv..."
+    python3 -m pip install pipenv --quiet
+fi
+
+# 5. Define installation directory
 INSTALL_DIR="$HOME/.mini-ci"
 if [ -d "$INSTALL_DIR" ]; then
     echo "🧹 Cleaning up previous installation..."
     rm -rf "$INSTALL_DIR"
 fi
 
-# 5. Clone and Install
+# 6. Clone and Install
 echo "📦 Downloading source code..."
 git clone https://github.com/mosakrm0/Plan-Tool.git "$INSTALL_DIR" --quiet
 
-echo "🔧 Installing via pip..."
+echo "🔧 Installing dependencies with pipenv..."
 cd "$INSTALL_DIR"
-# We use standard install here, not -e (editable), since it's for an end-user
-python3 -m pip install . --quiet
+pipenv install
 
 echo ""
 echo "✅ Installation complete!"
