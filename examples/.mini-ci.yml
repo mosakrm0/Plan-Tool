@@ -1,0 +1,20 @@
+image: node:18-alpine
+
+jobs:
+  lint:
+    steps:
+      - name: Run linter
+        run: npm run lint
+        
+  test:
+    steps:
+      - name: Unit Tests
+        run: npm test
+        
+  build:
+    needs: 
+      - lint
+      - test
+    steps:
+      - name: Compile
+        run: npm run build
