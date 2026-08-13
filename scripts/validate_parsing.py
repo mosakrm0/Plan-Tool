@@ -34,6 +34,32 @@ test_job:
     - echo test
 ''')
 
+GITLAB_DEFAULT_YAML = textwrap.dedent('''
+default:
+  image: python:3.9-alpine
+stages:
+ - test
+ - push
+variables:
+  image: mosakram/flaskapp
+  tag: 0.1
+apptest:
+  stage: test
+  script:
+    - pip install -r req.txt
+    - pytest
+buildAndpush:
+  before_script:
+    - docker login -u $user -p $pass
+  stage: push
+  image: docker:29.4.3-cli-alpine3.23
+  services:
+    - docker:dind
+  script:
+    - docker build -t $image:$tag .
+    - docker push $image:$tag
+''')
+
 
 def write_and_load(content, name):
     d = tempfile.mkdtemp()
@@ -47,4 +73,5 @@ def write_and_load(content, name):
 if __name__ == '__main__':
     write_and_load(GITHUB_YAML, 'github.yml')
     write_and_load(GITLAB_YAML, 'gitlab.yml')
+    write_and_load(GITLAB_DEFAULT_YAML, 'gitlab-default.yml')
     print('VALIDATION-OK')

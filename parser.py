@@ -52,7 +52,9 @@ def load_pipeline(filepath: str) -> Pipeline:
     parsed_jobs = {}
     # Try GitHub Actions / generic 'jobs' structure first
     if isinstance(raw_data, dict) and 'jobs' in raw_data:
-        global_image = _extract_image(raw_data.get('image'))
+        # Support GitHub Actions 'image' as well as GitLab 'default: image:'
+        default_img = (raw_data.get('default') or {}).get('image') if isinstance(raw_data.get('default'), dict) else None
+        global_image = _extract_image(raw_data.get('image') or default_img)
         jobs_section = raw_data['jobs'] or {}
 
         for job_name, job_data in jobs_section.items():
@@ -118,7 +120,8 @@ def load_pipeline(filepath: str) -> Pipeline:
 
     else:
         # Fallback: Try GitLab single-file format where jobs are top-level keys (and 'stages' may exist)
-        global_image = _extract_image(raw_data.get('image') if isinstance(raw_data, dict) else None)
+        default_img = (raw_data.get('default') or {}).get('image') if isinstance(raw_data.get('default'), dict) else None
+        global_image = _extract_image((raw_data.get('image') if isinstance(raw_data, dict) else None) or default_img)
         candidate_jobs = {}
         if isinstance(raw_data, dict):
             for key, value in raw_data.items():
