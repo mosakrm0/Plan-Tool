@@ -399,12 +399,14 @@ def main():
     
     parser = argparse.ArgumentParser(
         description=f"plan (v{__version__}): A lightweight, parallel CI/CD runner.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
             "  plan --repo https://github.com/user/repo.git\n"
             "  plan --local ./my-project -v image=mosakram/flaskapp -v tag=0.2 -s DOCKER_PASS=secret\n"
-            "  plan --repo https://gitlab.com/user/repo.git --pipeline .gitlab-ci.yml -v image=custom/image\n"
-            "Notes:\n  Use -v/--var to set pipeline variables and -s/--secret to inject secrets (secrets are not printed)."
+            "  plan --repo https://gitlab.com/user/repo.git --pipeline .gitlab-ci.yml -v image=custom/image\n\n"
+            "Notes:\n"
+            "  Use -v/--var to set pipeline variables and -s/--secret to inject secrets (secrets are not printed)."
         )
     )
     
