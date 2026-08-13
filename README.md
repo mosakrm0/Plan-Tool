@@ -76,7 +76,7 @@ Invoke-WebRequest -Uri "https://raw.githubusercontent.com/mosakrm0/plan-tool/mai
 ### Verify the install
 
 ```bash
-plan --version
+plan --help
 ```
 
 ---
