@@ -22,47 +22,53 @@ def execute_job(job: Job, reporter: Reporter, cwd: str = None) -> Tuple[bool, fl
         return False, 0.0
     # ---------------------------------------------------
     
+    # Combine all steps into a single container run so that side-effects (e.g., pip installs) persist between steps
+    # Build a shell command that echoes step headers and executes each step; stop on first failure
+    step_cmds = []
     for step in job.steps:
-        reporter.log(job.name, f"> Step: {step.name}", Colors.BLUE)
-        
-        # Use the absolute docker_path we just resolved
-        docker_cmd = [
-            docker_path, "run", "--rm",
-            "-v", f"{target_dir}:/workspace",
-            "-w", "/workspace",
-            job.image,
-            "sh", "-c", step.run
-        ]
-        
-        try:
-            process = subprocess.Popen(
-                docker_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True
-            )
-            
-            if process.stdout:
-                for line in process.stdout:
-                    reporter.log(job.name, line, Colors.GRAY)
-            
-            process.wait()
-            
-            if process.returncode != 0:
-                total_duration = time.time() - job_start_time
-                reporter.log(job.name, f"❌ Step '{step.name}' failed (exit {process.returncode})", Colors.RED)
-                reporter.set_status(job.name, Status.FAILED, total_duration)
-                return False, total_duration
+        # Escape single quotes in the command and step name to avoid breaking the shell string
+        safe_run = step.run.replace("'", "'\"'\"'")
+        safe_name = step.name.replace("'", "'\"'\"'")
+        step_cmds.append(f"echo '--- STEP: {safe_name}'; {safe_run}")
 
-        except Exception as e:
-            # Catch any other unexpected OS errors cleanly
+    combined_shell = "set -e; " + " && ".join(step_cmds)
+
+    docker_cmd = [
+        docker_path, "run", "--rm",
+        "-v", f"{target_dir}:/workspace",
+        "-w", "/workspace",
+        job.image,
+        "sh", "-c", combined_shell
+    ]
+
+    try:
+        process = subprocess.Popen(
+            docker_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True
+        )
+
+        if process.stdout:
+            for line in process.stdout:
+                reporter.log(job.name, line, Colors.GRAY)
+
+        process.wait()
+
+        if process.returncode != 0:
             total_duration = time.time() - job_start_time
-            reporter.log(job.name, f"❌ Failed to execute process: {e}", Colors.RED)
+            reporter.log(job.name, f"❌ Job failed (exit {process.returncode})", Colors.RED)
             reporter.set_status(job.name, Status.FAILED, total_duration)
             return False, total_duration
+
+    except Exception as e:
+        total_duration = time.time() - job_start_time
+        reporter.log(job.name, f"❌ Failed to execute process: {e}", Colors.RED)
+        reporter.set_status(job.name, Status.FAILED, total_duration)
+        return False, total_duration
 
     total_duration = time.time() - job_start_time
     reporter.log(job.name, f"✅ Job completed successfully", Colors.GREEN)
     reporter.set_status(job.name, Status.PASSED, total_duration)
-    
+
     return True, total_duration
