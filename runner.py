@@ -141,20 +141,59 @@ def run_pipeline(filepath: str, cwd: str = None, webhook_url: str = None):
         sys.exit(1)
 
 def find_pipeline_file(target_dir: str, specified_file: str = None) -> str:
-    """Finds the pipeline file, falling back between standard extensions if not specified."""
+    """Finds the pipeline file, supporting many CI filename conventions (GitHub Actions, GitLab, Plan, etc.).
+
+    Priority order:
+      1. explicit specified_file
+      2. well-known top-level names (.mini-ci.yml, .plan.yml, .gitlab-ci.yml, .ci.yml)
+      3. GitHub Actions workflows (.github/workflows/*.yml)
+      4. fallback: search for any YAML containing a 'jobs:' or top-level 'script:' indicators
+    """
     if specified_file:
         path = os.path.join(target_dir, specified_file)
         if not os.path.exists(path):
             print(f"❌ Could not find specified pipeline: {specified_file} in {target_dir}")
             sys.exit(1)
         return path
-        
-    # Default behavior: check both standard extensions
-    for ext in [".mini-ci.yml", ".mini-ci.yaml", ".plan.yml", ".plan.yaml", ".ci.yml"]:
-        path = os.path.join(target_dir, ext)
+
+    # 1) Check common top-level filenames
+    common_names = [
+        ".mini-ci.yml", ".mini-ci.yaml", ".plan.yml", ".plan.yaml",
+        ".ci.yml", ".ci.yaml", "gitlab-ci.yml", "gitlab-ci.yaml", ".gitlab-ci.yml", ".gitlab-ci.yaml"
+    ]
+    for name in common_names:
+        path = os.path.join(target_dir, name)
         if os.path.exists(path):
             return path
-            
+
+    # 2) GitHub Actions workflows
+    gh_workflows_dir = os.path.join(target_dir, '.github', 'workflows')
+    if os.path.isdir(gh_workflows_dir):
+        for fname in sorted(os.listdir(gh_workflows_dir)):
+            if fname.endswith(('.yml', '.yaml')):
+                return os.path.join(gh_workflows_dir, fname)
+
+    # 3) Walk the tree for obvious CI files (gitlab, circleci, any .yml that looks like a pipeline)
+    for root, dirs, files in os.walk(target_dir):
+        # skip common virtual env/build folders to avoid noise
+        skip_dirs = {'.git', '__pycache__', 'venv', '.venv', 'node_modules', 'dist', 'build'}
+        dirs[:] = [d for d in dirs if d not in skip_dirs]
+
+        for fname in files:
+            lf = fname.lower()
+            if lf in ("gitlab-ci.yml", "gitlab-ci.yaml", "circleci/config.yml"):
+                return os.path.join(root, fname)
+
+            if lf.endswith(('.yml', '.yaml')):
+                # Heuristic: peek into the file looking for 'jobs:' or 'script:' to identify CI files
+                try:
+                    with open(os.path.join(root, fname), 'r', encoding='utf-8') as f:
+                        head = f.read(16 * 1024)
+                        if 'jobs:' in head or '\nscript:' in head or '\nstages:' in head:
+                            return os.path.join(root, fname)
+                except Exception:
+                    continue
+
     print(f"❌ Could not find a pipeline YAML file in {target_dir}")
     sys.exit(1)
 
