@@ -17,11 +17,14 @@ class Job:
     steps: List[Step]
     needs: List[str] = field(default_factory=list)
     image: str = "ubuntu:latest"
+    env: Dict[str, str] = field(default_factory=dict)
+    services: List[str] = field(default_factory=list)
 
 @dataclass
 class Pipeline:
     jobs: Dict[str, Job]
     image: str = "ubuntu:latest"  # NEW: Global image track
+    variables: Dict[str, str] = field(default_factory=dict)
 
 def _extract_image(image_field):
     if not image_field:
@@ -111,12 +114,38 @@ def load_pipeline(filepath: str) -> Pipeline:
             if not isinstance(needs, list):
                 raise PipelineError(f"'needs' in job '{job_name}' must be a list.")
 
-            parsed_jobs[job_name] = Job(
-                name=job_name,
-                steps=parsed_steps,
-                needs=needs,
-                image=job_image
-            )
+                # Merge variables: pipeline-level variables first, then job-level override
+                job_vars = {}
+                if isinstance(raw_data, dict):
+                    top_vars = raw_data.get('variables') or {}
+                    if isinstance(top_vars, dict):
+                        job_vars.update({k: str(v) for k, v in top_vars.items()})
+
+                # GitHub job-level env
+                job_level_env = job_data.get('env') or {}
+                if isinstance(job_level_env, dict):
+                    job_vars.update({k: str(v) for k, v in job_level_env.items()})
+
+                # GitLab job-level variables may appear under 'variables'
+                gl_vars = job_data.get('variables') or {}
+                if isinstance(gl_vars, dict):
+                    job_vars.update({k: str(v) for k, v in gl_vars.items()})
+
+                services = []
+                sv = job_data.get('services') or job_data.get('service') or []
+                if isinstance(sv, list):
+                    services = [s if isinstance(s, str) else s.get('name', '') for s in sv]
+                elif isinstance(sv, str):
+                    services = [sv]
+
+                parsed_jobs[job_name] = Job(
+                    name=job_name,
+                    steps=parsed_steps,
+                    needs=needs,
+                    image=job_image,
+                    env=job_vars,
+                    services=services
+                )
 
     else:
         # Fallback: Try GitLab single-file format where jobs are top-level keys (and 'stages' may exist)
@@ -162,4 +191,11 @@ def load_pipeline(filepath: str) -> Pipeline:
             if needed_job not in parsed_jobs:
                 raise PipelineError(f"Job '{job_name}' needs '{needed_job}', but '{needed_job}' does not exist.")
 
-    return Pipeline(jobs=parsed_jobs, image=global_image)
+    # Collect top-level variables
+    top_vars = {}
+    if isinstance(raw_data, dict):
+        tv = raw_data.get('variables') or {}
+        if isinstance(tv, dict):
+            top_vars = {k: str(v) for k, v in tv.items()}
+
+    return Pipeline(jobs=parsed_jobs, image=global_image, variables=top_vars)

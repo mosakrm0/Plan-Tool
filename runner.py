@@ -8,10 +8,65 @@ import urllib.request
 import urllib.error
 import json
 import sysconfig
+from typing import Optional, Dict
+import yaml
 from parser import load_pipeline, PipelineError
 from graph import get_execution_order
 from executor import execute_job
 from reporter import Reporter, Status, Colors
+
+
+def load_kv_file(path: str) -> Dict[str,str]:
+    """Load variables/secrets from a simple .env or YAML file.
+
+    - .env style: KEY=VALUE lines
+    - YAML: top-level mapping
+    """
+    out = {}
+    if not path or not os.path.exists(path):
+        return out
+    try:
+        if path.lower().endswith(('.yml', '.yaml')):
+            with open(path, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f)
+                if isinstance(data, dict):
+                    for k, v in data.items():
+                        out[str(k)] = '' if v is None else str(v)
+        else:
+            # treat as .env
+            with open(path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+                    if '=' not in line:
+                        continue
+                    k, v = line.split('=', 1)
+                    out[k.strip()] = v.strip()
+    except Exception:
+        print(f"⚠️ Failed to read vars/secrets file: {path}")
+    return out
+
+
+def merge_vars_into_jobs(pipeline, extra_vars: Dict[str,str], secrets: Dict[str,str]):
+    """Merge pipeline-level vars, job-level env and provided extra vars/secrets into job.env.
+
+    Precedence: pipeline file vars < CLI extra_vars < job-level env < secrets
+    """
+    extra_vars = extra_vars or {}
+    secrets = secrets or {}
+
+    if hasattr(pipeline, 'variables'):
+        pipeline.variables.update({k: str(v) for k, v in extra_vars.items()})
+    else:
+        pipeline.variables = {k: str(v) for k, v in extra_vars.items()}
+
+    for job in pipeline.jobs.values():
+        base_env = dict(pipeline.variables or {})
+        job_env = getattr(job, 'env', {}) or {}
+        merged = {**base_env, **job_env}
+        merged.update({k: str(v) for k, v in secrets.items()})
+        job.env = merged
 
 __version__ = "1.0.0"
 UPDATE_URL = "https://raw.githubusercontent.com/mosakrm0/Plan-Tool/main/version.txt"
@@ -85,16 +140,19 @@ def run_job_task(job_name: str, pipeline, reporter: Reporter, cwd: str = None) -
     success, _ = execute_job(job, reporter, cwd=cwd)
     return success
 
-def run_pipeline(filepath: str, cwd: str = None, webhook_url: str = None):
+def run_pipeline(filepath: str, cwd: str = None, webhook_url: str = None, extra_vars: Optional[Dict[str,str]] = None, secrets: Optional[Dict[str,str]] = None):
     try:
         pipeline = load_pipeline(filepath)
-        get_execution_order(pipeline) 
+        get_execution_order(pipeline)
     except PipelineError as e:
         print(f"❌ Pipeline error: {e}")
         sys.exit(1)
     except Exception as e:
         print(f"❌ Unexpected error: {e}")
         sys.exit(1)
+
+    # Merge extra variables and secrets into the pipeline and jobs
+    merge_vars_into_jobs(pipeline, extra_vars or {}, secrets or {})
 
     reporter = Reporter()
     for job_name in pipeline.jobs:
@@ -109,7 +167,10 @@ def run_pipeline(filepath: str, cwd: str = None, webhook_url: str = None):
             in_degree[job_name] += 1
 
     pipeline_success = True
-    print(f"⚡ Starting pipeline execution in [{pipeline.image}]...\n")
+    # Print a summary line showing how many variables/secrets were applied (values redacted)
+    var_count = len(pipeline.variables) if hasattr(pipeline, 'variables') else 0
+    secret_count = len(secrets)
+    print(f"⚡ Starting pipeline execution in [{pipeline.image}]... (vars={var_count}, secrets=***hidden***)\n")
 
     with concurrent.futures.ThreadPoolExecutor() as pool:
         futures_to_job = {}
@@ -132,10 +193,12 @@ def run_pipeline(filepath: str, cwd: str = None, webhook_url: str = None):
                         futures_to_job[pool.submit(run_job_task, dependent, pipeline, reporter, cwd)] = dependent
 
     reporter.print_summary()
-    reporter.save_json_report(os.path.join(cwd or ".", "report.json"))
+    # Save JSON report with secrets masked
+    reporter.save_json_report(os.path.join(cwd or ".", "report.json"), secret_values=list(secrets.values()) if secrets else None)
     
     if webhook_url:
-        send_webhook(webhook_url, reporter.get_report_dict())
+        payload = reporter.get_report_dict(secret_values=list(secrets.values()) if secrets else None)
+        send_webhook(webhook_url, payload)
         
     if not pipeline_success:
         sys.exit(1)
@@ -231,7 +294,7 @@ def find_pipeline_file(target_dir: str, specified_file: str = None) -> str:
     print(f"⚠️ Selecting first candidate: {uniq[0]}")
     return uniq[0]
 
-def run_from_repo(repo_url: str, pipeline_filename: str = None, webhook_url: str = None):
+def run_from_repo(repo_url: str, pipeline_filename: str = None, webhook_url: str = None, extra_vars: Optional[Dict[str,str]] = None, secrets: Optional[Dict[str,str]] = None):
     with tempfile.TemporaryDirectory() as temp_dir:
         print(f"📦 Cloning {repo_url}...")
         clone_proc = subprocess.run(
@@ -249,14 +312,20 @@ def run_from_repo(repo_url: str, pipeline_filename: str = None, webhook_url: str
         
         pipeline_path = find_pipeline_file(temp_dir, pipeline_filename)
         print(f"🔍 Found pipeline at {pipeline_path}")
-        run_pipeline(pipeline_path, cwd=temp_dir, webhook_url=webhook_url)
+        run_pipeline(pipeline_path, cwd=temp_dir, webhook_url=webhook_url, extra_vars=extra_vars, secrets=secrets)
 
 def main():
     check_for_updates()
     
     parser = argparse.ArgumentParser(
         description=f"plan (v{__version__}): A lightweight, parallel CI/CD runner.",
-        epilog="Example: plan --repo https://github.com/user/repo.git"
+        epilog=(
+            "Examples:\n"
+            "  plan --repo https://github.com/user/repo.git\n"
+            "  plan --local ./my-project -v image=mosakram/flaskapp -v tag=0.2 -s DOCKER_PASS=secret\n"
+            "  plan --repo https://gitlab.com/user/repo.git --pipeline .gitlab-ci.yml -v image=custom/image\n"
+            "Notes:\n  Use -v/--var to set pipeline variables and -s/--secret to inject secrets (secrets are not printed)."
+        )
     )
     
     group = parser.add_mutually_exclusive_group(required=False)
@@ -266,18 +335,46 @@ def main():
     
     parser.add_argument('--pipeline', type=str, default=None, help="Name of the pipeline file.")
     parser.add_argument('--webhook', type=str, help="Optional URL to POST the JSON report to.")
+    parser.add_argument('--var', '-v', action='append', help="Set pipeline variable KEY=VALUE (can repeat)")
+    parser.add_argument('--secret', '-s', action='append', help="Set secret KEY=VALUE (can repeat). Secrets are not printed.")
+    parser.add_argument('--vars-file', type=str, help="Path to a .env or YAML file with variables (KEY=VALUE or YAML mapping)")
+    parser.add_argument('--secrets-file', type=str, help="Path to a .env or YAML file with secrets")
 
     args = parser.parse_args()
+
+    # Helper to parse KEY=VALUE lists
+    def parse_kv_list(kv_list):
+        out = {}
+        if not kv_list:
+            return out
+        for entry in kv_list:
+            if '=' not in entry:
+                print(f"⚠️ Ignoring malformed variable/secret: {entry}. Expected KEY=VALUE")
+                continue
+            k, v = entry.split('=', 1)
+            out[k] = v
+        return out
+
+    extra_vars = parse_kv_list(args.var)
+    secrets = parse_kv_list(args.secret)
+
+    # Load vars/secrets files (if provided) and merge. CLI flags override file contents.
+    file_vars = load_kv_file(args.vars_file) if getattr(args, 'vars_file', None) else {}
+    file_secrets = load_kv_file(args.secrets_file) if getattr(args, 'secrets_file', None) else {}
+    merged_vars = {**file_vars, **extra_vars}
+    merged_secrets = {**file_secrets, **secrets}
+    extra_vars = merged_vars
+    secrets = merged_secrets
 
     if args.fix_path:
         fix_windows_path()
     elif args.repo:
-        run_from_repo(args.repo, args.pipeline, args.webhook)
+        run_from_repo(args.repo, args.pipeline, args.webhook, extra_vars=extra_vars, secrets=secrets)
     elif args.local:
         local_dir = os.path.abspath(args.local)
         pipeline_path = find_pipeline_file(local_dir, args.pipeline)
         print(f"🔍 Found pipeline at {pipeline_path}")
-        run_pipeline(pipeline_path, cwd=local_dir, webhook_url=args.webhook)
+        run_pipeline(pipeline_path, cwd=local_dir, webhook_url=args.webhook, extra_vars=extra_vars, secrets=secrets)
     else:
         parser.print_help()
         sys.exit(1)

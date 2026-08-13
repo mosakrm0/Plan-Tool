@@ -35,11 +35,35 @@ def execute_job(job: Job, reporter: Reporter, cwd: str = None) -> Tuple[bool, fl
 
     docker_cmd = [
         docker_path, "run", "--rm",
-        "-v", f"{target_dir}:/workspace",
-        "-w", "/workspace",
-        job.image,
-        "sh", "-c", combined_shell
     ]
+
+    # Mount workspace
+    docker_cmd += ["-v", f"{target_dir}:/workspace", "-w", "/workspace"]
+
+    # Pass environment variables into the container
+    for k, v in (job.env or {}).items():
+        docker_cmd += ["-e", f"{k}={v}"]
+
+    # If job requests docker service/dind or uses docker image, and host socket exists, mount it (fallback)
+    host_sock = '/var/run/docker.sock'
+    if any('docker' in s for s in (job.services or [])) or ('docker' in (job.image or '').lower()):
+        if os.path.exists(host_sock):
+            reporter.log(job.name, f"⚠️ Using host Docker socket fallback: mounting {host_sock}", Colors.YELLOW)
+            docker_cmd += ["-v", f"{host_sock}:{host_sock}", "-e", f"DOCKER_HOST=unix://{host_sock}"]
+        else:
+            reporter.log(job.name, "⚠️ Docker service requested but host socket not available; service may fail.", Colors.YELLOW)
+
+    # Run container as the current host user when possible so files created inside the workspace are owned correctly
+    try:
+        uid = os.getuid()
+        gid = os.getgid()
+        docker_cmd += ["-u", f"{uid}:{gid}"]
+    except AttributeError:
+        # os.getuid/getgid not available on Windows; skip
+        pass
+
+    # Finally the image + command
+    docker_cmd += [job.image, "sh", "-c", combined_shell]
 
     try:
         process = subprocess.Popen(
