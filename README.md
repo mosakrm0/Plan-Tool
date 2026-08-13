@@ -184,6 +184,7 @@ jobs:
 rm -rf ~/.plan
 ```
 
+
 *Windows (PowerShell):*
 ```powershell
 Remove-Item -Recurse -Force $env:USERPROFILE\.plan
