@@ -140,7 +140,7 @@ def run_job_task(job_name: str, pipeline, reporter: Reporter, cwd: str = None) -
     success, _ = execute_job(job, reporter, cwd=cwd)
     return success
 
-def run_pipeline(filepath: str, cwd: str = None, webhook_url: str = None, extra_vars: Optional[Dict[str,str]] = None, secrets: Optional[Dict[str,str]] = None):
+def run_pipeline(filepath: str, cwd: str = None, webhook_url: str = None, extra_vars: Optional[Dict[str,str]] = None, secrets: Optional[Dict[str,str]] = None, report_output_dir: Optional[str] = None):
     try:
         pipeline = load_pipeline(filepath)
         get_execution_order(pipeline)
@@ -193,8 +193,11 @@ def run_pipeline(filepath: str, cwd: str = None, webhook_url: str = None, extra_
                         futures_to_job[pool.submit(run_job_task, dependent, pipeline, reporter, cwd)] = dependent
 
     reporter.print_summary()
-    # Save JSON report with secrets masked
-    reporter.save_json_report(os.path.join(cwd or ".", "report.json"), secret_values=list(secrets.values()) if secrets else None)
+    # Save JSON report with secrets masked. Use explicit report_output_dir when provided so temporary clones
+    # don't cause the report to disappear after exit.
+    out_dir = report_output_dir or (cwd or ".")
+    out_path = os.path.join(out_dir, "report.json")
+    reporter.save_json_report(out_path, secret_values=list(secrets.values()) if secrets else None)
     
     if webhook_url:
         payload = reporter.get_report_dict(secret_values=list(secrets.values()) if secrets else None)
@@ -295,6 +298,8 @@ def find_pipeline_file(target_dir: str, specified_file: str = None) -> str:
     return uniq[0]
 
 def run_from_repo(repo_url: str, pipeline_filename: str = None, webhook_url: str = None, extra_vars: Optional[Dict[str,str]] = None, secrets: Optional[Dict[str,str]] = None):
+    # Save report to caller's current working directory so temporary clone removal doesn't delete it
+    report_output_dir = os.getcwd()
     with tempfile.TemporaryDirectory() as temp_dir:
         print(f"📦 Cloning {repo_url}...")
         clone_proc = subprocess.run(
@@ -312,7 +317,7 @@ def run_from_repo(repo_url: str, pipeline_filename: str = None, webhook_url: str
         
         pipeline_path = find_pipeline_file(temp_dir, pipeline_filename)
         print(f"🔍 Found pipeline at {pipeline_path}")
-        run_pipeline(pipeline_path, cwd=temp_dir, webhook_url=webhook_url, extra_vars=extra_vars, secrets=secrets)
+        run_pipeline(pipeline_path, cwd=temp_dir, webhook_url=webhook_url, extra_vars=extra_vars, secrets=secrets, report_output_dir=report_output_dir)
 
 def main():
     check_for_updates()
@@ -374,7 +379,9 @@ def main():
         local_dir = os.path.abspath(args.local)
         pipeline_path = find_pipeline_file(local_dir, args.pipeline)
         print(f"🔍 Found pipeline at {pipeline_path}")
-        run_pipeline(pipeline_path, cwd=local_dir, webhook_url=args.webhook, extra_vars=extra_vars, secrets=secrets)
+        # Save report to the directory where the user invoked the command, not the project dir
+        report_output_dir = os.getcwd()
+        run_pipeline(pipeline_path, cwd=local_dir, webhook_url=args.webhook, extra_vars=extra_vars, secrets=secrets, report_output_dir=report_output_dir)
     else:
         parser.print_help()
         sys.exit(1)
