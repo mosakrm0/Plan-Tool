@@ -21,29 +21,29 @@ if ! command -v git &> /dev/null; then
     exit 1
 fi
 
-# 4. Check for and install pipx
-if ! command -v pipx &> /dev/null; then
-    echo "📥 Installing pipx..."
-    python3 -m pip install --user pipx
-    
-    # Add pipx to PATH if not already there
-    export PATH="$PATH:$HOME/.local/bin"
-fi
-
-# 5. Check for and install pipenv via pipx
+# 4. Bootstrap pipenv installation
 if ! command -v pipenv &> /dev/null; then
-    echo "📥 Installing pipenv via pipx..."
-    pipx install pipenv
+    echo "📥 Installing pipenv..."
+    
+    # Create a temporary virtual environment to bootstrap pipenv
+    TEMP_VENV=$(mktemp -d)
+    python3 -m venv "$TEMP_VENV"
+    source "$TEMP_VENV/bin/activate"
+    pip install --quiet pipenv
+    deactivate
+    
+    # Add temp venv to PATH for this session
+    export PATH="$TEMP_VENV/bin:$PATH"
 fi
 
-# 6. Define installation directory
+# 5. Define installation directory
 INSTALL_DIR="$HOME/.mini-ci"
 if [ -d "$INSTALL_DIR" ]; then
     echo "🧹 Cleaning up previous installation..."
     rm -rf "$INSTALL_DIR"
 fi
 
-# 7. Clone and Install
+# 6. Clone and Install
 echo "📦 Downloading source code..."
 git clone https://github.com/mosakrm0/Plan-Tool.git "$INSTALL_DIR" --quiet
 

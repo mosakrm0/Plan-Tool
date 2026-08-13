@@ -18,29 +18,29 @@ if (-Not (Get-Command "git" -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-# 4. Check for and install pipx
-if (-Not (Get-Command "pipx" -ErrorAction SilentlyContinue)) {
-    Write-Host "📥 Installing pipx..." -ForegroundColor Gray
-    python -m pip install --user pipx
-    
-    # Add pipx to PATH if not already there
-    $env:Path += ";$env:APPDATA\Python\Scripts"
-}
-
-# 5. Check for and install pipenv via pipx
+# 4. Bootstrap pipenv installation
 if (-Not (Get-Command "pipenv" -ErrorAction SilentlyContinue)) {
-    Write-Host "📥 Installing pipenv via pipx..." -ForegroundColor Gray
-    pipx install pipenv
+    Write-Host "📥 Installing pipenv..." -ForegroundColor Gray
+    
+    # Create a temporary virtual environment to bootstrap pipenv
+    $TempVenv = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), [System.IO.Path]::GetRandomFileName())
+    python -m venv $TempVenv
+    & "$TempVenv\Scripts\Activate.ps1"
+    pip install pipenv
+    deactivate
+    
+    # Add temp venv to PATH for this session
+    $env:Path = "$TempVenv\Scripts;$env:Path"
 }
 
-# 6. Define installation directory
+# 5. Define installation directory
 $InstallDir = "$env:USERPROFILE\.mini-ci"
 if (Test-Path $InstallDir) {
     Write-Host "🧹 Cleaning up previous installation..." -ForegroundColor Gray
     Remove-Item -Recurse -Force $InstallDir
 }
 
-# 7. Clone and Install
+# 6. Clone and Install
 Write-Host "📦 Downloading source code..." -ForegroundColor Gray
 git clone https://github.com/mosakrm0/Plan-Tool.git $InstallDir
 
