@@ -1,71 +1,101 @@
-﻿# Plan
+﻿# Plan 
 
 [![Python](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/)
-[![Docker Required](https://img.shields.io/badge/docker-required-blue?logo=docker&logoColor=white)](https://www.docker.com/)
+[![Docker Required](https://img.shields.io/badge/docker-required-2496ED?logo=docker&logoColor=white)](https://www.docker.com/)
 
 A lightweight, parallel CI/CD runner.
 
-**Plan** is a platform-agnostic CI runner. It parses YAML pipelines, resolves job dependencies into a DAG, and executes jobs concurrently inside isolated Docker containers.
+**Plan** is a platform-agnostic CI runner. It's a dependency-free, local CI engine that parses YAML pipelines, resolves job dependencies into a Directed Acyclic Graph (DAG), and executes jobs concurrently inside isolated Docker containers.
 
 ---
 
 ## Table of Contents
 
 - [Why Plan?](#why-plan)
-- [Core Features](#core-features)
-- [Prerequisites](#prerequisites)
-- [Installation](#installation)
-- [Usage](#usage)
-- [CLI Arguments](#cli-arguments)
-- [Variables and secrets](#variables-and-secrets)
-- [Pipeline Configuration](#pipeline-configuration)
-- [How It Works](#how-it-works)
-- [Contributing](#contributing)
+- [Core Features](#-core-features)
+- [Prerequisites](#️-prerequisites)
+- [Installation](#-installation)
+- [Usage](#-usage)
+- [Pipeline Configuration](#-pipeline-configuration-mini-ciyml)
+- [How It Works](#-how-it-works)
+- [Uninstallation](#️-uninstallation)
+- [Contributing](#-contributing)
+- [License](#-license)
 
 ---
 
 ## Why Plan?
 
-Most CI tools are black boxes. Plan is a transparent, single-purpose engine you can run locally to understand DAG resolution, scheduling and container isolation in practice.
+Most CI tools are black boxes running on someone else's infrastructure. Plan is the opposite: a transparent, single-purpose engine you can read end-to-end in an afternoon, run entirely on your own machine, and point at any repo — local or remote — to see exactly how DAG resolution, scheduling, and container isolation work in practice.
 
 ## Core Features
 
-- Topological sorting (DAGs)
-- Dynamic concurrency
-- Docker isolation
-- Transitive skip logic
-- Git & webhook integration
-- Auto-updater
+| Feature | Description |
+|---|---|
+| **Topological Sorting (DAGs)** | Parses job `needs` to build a dependency graph. Uses Kahn's Algorithm to compute exact execution order and detect circular dependencies. |
+| **Dynamic Concurrency** | Releases jobs to the thread pool the moment their upstream dependencies succeed, avoiding worker starvation. |
+| **Docker Isolation** | Mounts your codebase into ephemeral Docker containers (`ubuntu`, `node`, `python`, etc.) for safe, reproducible execution. |
+| **Transitive Skip Logic** | If a job fails, downstream dependents cascade to `SKIPPED` while independent parallel jobs continue unaffected. |
+| **Git & Webhook Integration** | Clones target repositories on the fly and optionally POSTs a JSON status report to a webhook on completion. |
+| **Built-in Auto-Updater** | Silently checks for newer releases and notifies you in the terminal. |
+
+---
 
 ## Prerequisites
 
+Before installing, make sure you have:
+
 1. **Python 3.8+**
-2. **Docker** (Docker Desktop / Engine must be running)
+2. **Docker Desktop / Docker Engine** (must be running)
 3. **Git**
 
 ---
 
 ## Installation
 
-See `install.sh` / `install.ps1` for platform-specific installers. After installation the global `plan` command should be available.
+### Linux / macOS / WSL
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mosakrm0/plan-tool/main/install.sh | bash
+```
+
+### Windows (PowerShell)
+
+Open PowerShell as a standard user and run:
+
+```powershell
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/mosakrm0/plan-tool/main/install.ps1" -UseBasicParsing | Invoke-Expression
+```
+
+> **Windows users:** if you see a "command not found" error after installation, fix your PATH automatically:
+> ```powershell
+> python -m runner --fix-path
+> ```
+> Close and reopen your terminal afterward.
+
+### Verify the install
+
+```bash
+plan --version
+```
 
 ---
 
 ## Usage
 
-Run a local directory (great for testing pipelines as you write them):
+Once installed, the global `plan` command is available from anywhere in your terminal.
+
+**Run a local directory** (great for testing pipelines as you write them):
 
 ```bash
 plan --local ./my-project
 ```
 
-Run a remote Git repository:
+**Run a remote Git repository:**
 
 ```bash
 plan --repo https://github.com/username/project.git
 ```
-
----
 
 ## CLI Arguments
 
@@ -100,27 +130,80 @@ Example:
 plan --repo https://gitlab.com/user/repo.git -v image=myorg/app -v tag=0.2 -s DOCKER_PASS=abc123
 ```
 
-This makes `image` and `tag` available inside job scripts as environment variables and injects `DOCKER_PASS` as a secret. Secrets are not printed by Plan; avoid echoing them from your steps.
-
 ---
 
-## Pipeline Configuration (`.ci.yml`, `.gitlab-ci.yml`, `.github/workflows/*`)
+## Pipeline Configuration (`.ci.yml`)
 
-Plan accepts common CI formats (GitHub Actions jobs/steps, GitLab jobs with `script` and `default.image`, and other simple YAML pipelines). See `parser.py` for normalization details.
+Create a `.ci.yml` or `.ci.yaml` file in the root of your project:
+
+```yaml
+# Global Docker image for all jobs
+image: node:18-alpine
+
+jobs:
+  lint:
+    steps:
+      - name: Run linter
+        run: npm run lint
+
+  test:
+    steps:
+      - name: Unit Tests
+        run: npm test
+
+  build:
+    # Waits for 'lint' and 'test' to finish successfully
+    needs:
+      - lint
+      - test
+    steps:
+      - name: Compile Application
+        run: npm run build
+```
+
+**Result:** `lint` and `test` run in parallel; `build` starts only once both succeed. If either fails, `build` is marked `SKIPPED` automatically.
 
 ---
 
 ## How It Works
 
-1. Parse the YAML pipeline and validate.
-2. Build a DAG of jobs and dependencies.
-3. Produce a valid execution order using Kahn's algorithm.
-4. Schedule jobs on a thread pool when dependencies are satisfied.
-5. Execute jobs inside ephemeral Docker containers and collect results.
-6. Save `report.json` and optionally POST to a webhook.
+1. **Parse** — the YAML pipeline is loaded and validated.
+2. **Graph** — jobs and their `needs` are compiled into a DAG.
+3. **Sort** — Kahn's Algorithm produces a valid execution order and flags any cycles.
+4. **Schedule** — a thread pool dispatches each job the instant its dependencies succeed.
+5. **Execute** — each job runs inside an isolated, ephemeral Docker container with your codebase mounted.
+6. **Report** — results are collected into `report.json` and optionally POSTed to a webhook.
 
 ---
 
-## Contributing
+## 🗑️ Uninstallation
 
-Contributions welcome. Please open an issue to discuss significant changes.
+**1. Uninstall the Python package:**
+
+```bash
+pip uninstall plan
+```
+
+**2. Remove the cloned source directory:**
+
+*Linux / macOS:*
+```bash
+rm -rf ~/.mini-ci
+```
+
+*Windows (PowerShell):*
+```powershell
+Remove-Item -Recurse -Force $env:USERPROFILE\.mini-ci
+```
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please open an issue to discuss significant changes before submitting a pull request.
+
+```bash
+git clone https://github.com/mosakrm0/plan-tool
+cd plan-tool
+pip install -e .
+```
